@@ -1,5 +1,8 @@
 {
-    "reuse_tab": false,   // reuse single scratch tab instead opening new on each command
-    "timeout": 120,       // first run on a large project can take a bit on slow machines
-    "show_gutter": false  // whether to show gutter (giving more space on the left)
+    "top_k": 5,                 // Number of results
+    "max_snippet_lines": 10,    // Lines of source per result (10 = signature + body, 0 = no code)
+    "content": ["code"],        // List of content types to index. Choices: code, docs, config, all
+    "reuse_tab": false,         // Reuse single scratch tab instead opening new on each command
+    "timeout": 120,             // First run on a large project can take a bit on slow machines
+    "show_gutter": false        // Whether to show gutter (giving more space on the left)
 }

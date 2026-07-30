@@ -143,10 +143,21 @@ class SembleCommand(sublime_plugin.WindowCommand):
         project_path: str,
     ) -> None:
         """Build the command, open the output view, and launch the worker thread."""
+
+        settings = sublime.load_settings('semble.sublime-settings')
+        top_k = settings.get('top_k', 5)
+        max_snippet_lines = settings.get('max_snippet_lines', 10)
+        content = settings.get('content', ['code'])
+        cmd = [
+            'semble', command,
+            '-k', str(top_k),
+            '--max-snippet-lines', str(max_snippet_lines),
+            '--content', *content, '--'
+        ]
         if command == 'find-related':
-            cmd = ['semble', command, file_path, line_number]
+            cmd += [file_path, line_number]
         elif command == 'search':
-            cmd = ['semble', command, query]
+            cmd += [query]
         else:
             return
 
@@ -201,7 +212,7 @@ class SembleCommand(sublime_plugin.WindowCommand):
                 else:
                     payload = json.loads(stdout) if stdout else {}
                     results = payload.get('results') or []
-                    md = f'# Semble {cmd[1]} ({":".join(cmd[2:])})\n'
+                    md = f'# Semble {cmd[1]} ({":".join(cmd[cmd.index("--") + 1:])})\n'
                     md += self._json_to_md(results, kind=cmd[1])
             finally:
                 _processes.pop(view_id, None)
@@ -291,9 +302,10 @@ class SembleCommand(sublime_plugin.WindowCommand):
             if kind == 'search':
                 md += f'🎯 {i + 1}\n'  # rank based (RRF)
             elif kind == 'find-related':
-                md += f'🎯 {result["score"]:.2%}\n'  # cosine similarity
+                md += f'🎯 {result.get("score", 0):.2%}\n'  # cosine similarity
             md += f'📌 [source]({result["file_path"]}#L{result["start_line"]}-L{result["end_line"]})\n\n'
-            md += f'```{lang}\n{result["content"]}\n```\n'
+            if result.get('content'):
+                md += f'```{lang}\n{result["content"]}\n```\n'
 
         return md
 

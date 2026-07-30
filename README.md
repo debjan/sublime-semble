@@ -47,6 +47,7 @@ Results appear in a **Semble results** tab showing:
 
 - 🎯 Rank (search) or cosine similarity score (find-related)
 - 📌 Source file and line range
+- 🔗 Find-related link
 - Syntax-highlighted code block
 
 ## Notes
