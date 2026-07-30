@@ -130,7 +130,8 @@ class SembleCommand(sublime_plugin.WindowCommand):
         s = v.settings()
         s.set('word_wrap', True)
         s.set('line_numbers', False)
-        s.set('gutter', False)
+        show_gutter = sublime.load_settings('semble.sublime-settings').get('show_gutter', False)
+        s.set('gutter', show_gutter)
         return v
 
     def _start(

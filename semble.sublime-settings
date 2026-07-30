@@ -1,4 +1,5 @@
 {
-    "reuse_tab": false,  // reuse single scratch tab instead opening new on each command
-    "timeout": 120       // first run on a large project can take a bit on slow machines
+    "reuse_tab": false,   // reuse single scratch tab instead opening new on each command
+    "timeout": 120,       // first run on a large project can take a bit on slow machines
+    "show_gutter": false  // whether to show gutter (giving more space on the left)
 }
