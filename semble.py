@@ -72,8 +72,8 @@ class SembleCommand(sublime_plugin.WindowCommand):
     def is_visible(self) -> bool:
         if not _semble_is_available():
             return False
-        self.project_path = self.window.extract_variables().get('project_path')
-        return bool(self.project_path)
+        project_path = self.window.extract_variables().get('project_path')
+        return bool(project_path)
 
     def run(
         self,
@@ -82,13 +82,13 @@ class SembleCommand(sublime_plugin.WindowCommand):
         file_path: str = '',
         line_number: str = '0'
     ) -> None:
-        self.project_path = self.window.extract_variables().get('project_path') or ''
+        project_path = self.window.extract_variables().get('project_path') or ''
         if command == 'find-related':
             if not file_path:
                 view = self.window.active_view()
                 if view and view.file_name():
                     file_abs = Path(view.file_name()).resolve()
-                    proj_abs = Path(self.project_path).resolve()
+                    proj_abs = Path(project_path).resolve()
                     if proj_abs not in file_abs.parents:
                         sublime.status_message('Semble: file is outside the project root')
                         return
@@ -97,11 +97,11 @@ class SembleCommand(sublime_plugin.WindowCommand):
             if not file_path:
                 sublime.status_message('Semble: no file to find related from')
                 return
-            self._start(command, query, file_path, line_number, self.project_path)
+            self._start(command, query, file_path, line_number, project_path)
         else:
             self.window.show_input_panel(
                 '🪽', '',
-                lambda q: self._start(command, q, file_path, line_number, self.project_path),
+                lambda q: self._start(command, q, file_path, line_number, project_path),
                 None,
                 lambda: sublime.status_message('Semble search cancelled'),
             )
