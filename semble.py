@@ -47,8 +47,7 @@ def _get_language_map() -> dict[str, str]:
     extensions = Path(__file__).resolve().parent / 'extensions.json'
     return (
         json.loads(extensions.read_text(encoding='utf-8'))
-        if extensions.is_file()
-        else {}
+        if extensions.is_file() else {}
     )
 
 
@@ -303,9 +302,9 @@ class SembleCommand(sublime_plugin.WindowCommand):
                 md += f'🎯 {i + 1}\n'  # rank based (RRF)
             elif kind == 'find-related':
                 md += f'🎯 {result.get("score", 0):.2%}\n'  # cosine similarity
-            md += f'📌 [source]({result["file_path"]}#L{result["start_line"]}-L{result["end_line"]})\n\n'
+            md += f'📌 [source]({result["file_path"]}#L{result["start_line"]}-L{result["end_line"]})\n'
             if result.get('content'):
-                md += f'```{lang}\n{result["content"]}\n```\n'
+                md += f'\n```{lang}\n{result["content"]}\n```\n'
 
         return md
 
