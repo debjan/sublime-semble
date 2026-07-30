@@ -1,0 +1,4 @@
+{
+    "reuse_tab": false,  // reuse single scratch tab instead opening new on each command
+    "timeout": 120       // first run on a large project can take a bit on slow machines
+}

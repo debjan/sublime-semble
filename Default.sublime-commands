@@ -1,0 +1,4 @@
+[
+    {"caption": "Semble: Search", "command": "semble"},
+    {"caption": "Semble: Find Related", "command": "semble", "args": {"command": "find-related"}},
+]
