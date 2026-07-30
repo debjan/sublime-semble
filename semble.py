@@ -7,8 +7,10 @@ import subprocess
 import sys
 import threading
 from functools import lru_cache
+from os import sep
 from pathlib import Path
 from typing import Callable
+from urllib.parse import urlparse
 
 import sublime
 import sublime_plugin
@@ -51,6 +53,16 @@ def _get_language_map() -> dict[str, str]:
     )
 
 
+def _get_git_repo() -> str | None:
+    git_repo = sublime.load_settings('Semble.sublime-settings').get('git_repo')
+    if git_repo and git_repo.startswith('http'):
+        try:
+            r = urlparse(git_repo)
+            return git_repo if all([r.scheme in ['http', 'https'], r.netloc]) else None
+        except ValueError:
+            return
+
+
 class SembleEventListener(sublime_plugin.EventListener):
     """Clean up phantom sets and cancel threads when views are closed."""
 
@@ -72,41 +84,46 @@ class SembleCommand(sublime_plugin.WindowCommand):
         if not _semble_is_available():
             return False
         project_path = self.window.extract_variables().get('project_path')
-        return bool(project_path)
+        return bool(project_path or _get_git_repo())
 
     def run(
         self,
         command: str = 'search',
         query: str = '',
         file_path: str = '',
-        line_number: str = '0'
+        line_number: str = ''
     ) -> None:
+        git_repo = _get_git_repo() or ''
         project_path = self.window.extract_variables().get('project_path') or ''
         if command == 'find-related':
             if not file_path:
                 view = self.window.active_view()
                 if view and view.file_name():
                     file_abs = Path(view.file_name()).resolve()
-                    proj_abs = Path(project_path).resolve()
-                    if proj_abs not in file_abs.parents:
-                        sublime.status_message('Semble: file is outside the project root')
-                        return
-                    file_path = str(file_abs.relative_to(proj_abs))
+                    if project_path:
+                        proj_abs = Path(project_path).resolve()
+                        if proj_abs not in file_abs.parents:
+                            sublime.status_message('Semble: file is outside the project root')
+                            return
+                        file_path = str(file_abs.relative_to(proj_abs))
+                    else:
+                        file_path = str(file_abs)
                     line_number = str(view.rowcol(view.sel()[0].a)[0] + 1)
             if not file_path:
                 sublime.status_message('Semble: no file to find related from')
                 return
-            self._start(command, query, file_path, line_number, project_path)
+            self._start(command, query, file_path, line_number, project_path, git_repo)
         else:
             self.window.show_input_panel(
                 '🪽', '',
-                lambda q: self._start(command, q, file_path, line_number, project_path),
+                lambda q: self._start(command, q, file_path, line_number, project_path, git_repo),
                 None,
                 lambda: sublime.status_message('Semble search cancelled'),
             )
 
     def _get_output_view(self) -> sublime.View:
-        if sublime.load_settings('semble.sublime-settings').get('reuse_tab', False):
+        settings = sublime.load_settings('Semble.sublime-settings')
+        if settings.get('reuse_tab', False):
             for v in self.window.views():
                 if v.name() == 'Semble results' and v.is_scratch():
                     vid = v.id()
@@ -127,10 +144,9 @@ class SembleCommand(sublime_plugin.WindowCommand):
         v.set_name('Semble results')
         v.assign_syntax('Packages/Markdown/Markdown.sublime-syntax')
         s = v.settings()
-        s.set('word_wrap', True)
         s.set('line_numbers', False)
-        show_gutter = sublime.load_settings('semble.sublime-settings').get('show_gutter', False)
-        s.set('gutter', show_gutter)
+        s.set('word_wrap', settings.get('wrap'))
+        s.set('gutter', settings.get('show_gutter'))
         return v
 
     def _start(
@@ -140,10 +156,11 @@ class SembleCommand(sublime_plugin.WindowCommand):
         file_path: str,
         line_number: str,
         project_path: str,
+        git_repo: str,
     ) -> None:
         """Build the command, open the output view, and launch the worker thread."""
 
-        settings = sublime.load_settings('semble.sublime-settings')
+        settings = sublime.load_settings('Semble.sublime-settings')
         top_k = settings.get('top_k', 5)
         max_snippet_lines = settings.get('max_snippet_lines', 10)
         content = settings.get('content', ['code'])
@@ -159,6 +176,9 @@ class SembleCommand(sublime_plugin.WindowCommand):
             cmd += [query]
         else:
             return
+
+        if git_repo:
+            cmd.append(git_repo)
 
         output_view = self._get_output_view()
 
@@ -199,18 +219,21 @@ class SembleCommand(sublime_plugin.WindowCommand):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                cwd=project_path,
+                cwd=project_path or None,
                 creationflags=creation_flags,
             )
             _processes[view_id] = proc
             try:
-                timeout = sublime.load_settings('semble.sublime-settings').get('timeout', 120)
+                settings = sublime.load_settings('Semble.sublime-settings')
+                timeout = settings.get('timeout', 120)
                 stdout, stderr = proc.communicate(timeout=timeout)
                 if proc.returncode != 0:
                     md = error_admon(stderr.strip())
                 else:
                     payload = json.loads(stdout) if stdout else {}
                     results = payload.get('results') or []
+                    if _get_git_repo():
+                        cmd.pop()
                     md = f'# Semble {cmd[1]} ({":".join(cmd[cmd.index("--") + 1:])})\n'
                     md += self._json_to_md(results, kind=cmd[1])
             finally:
@@ -247,12 +270,16 @@ class SembleCommand(sublime_plugin.WindowCommand):
             _phantom_sets[view_id] = ps
         phantoms = []
 
+        git_repo = _get_git_repo()
+        prefix = f'{git_repo}/blob/main/' if git_repo else ''
         for region in view.find_all(r'\[source\]\([^)]+\)'):
             matched_text = view.substr(region)
             m = re.match(r'\[source\]\(([^)]+)#L(\d+)-L(\d+)\)', matched_text)
             if not m:
                 continue
             file_path = m.group(1)
+            if git_repo:
+                file_path = file_path.replace(prefix, '').replace('/', sep)
             start_line = int(m.group(2))
             end_line = int(m.group(3))
             line_number = str(start_line + (end_line - start_line) // 2)
@@ -294,6 +321,8 @@ class SembleCommand(sublime_plugin.WindowCommand):
     def _json_to_md(self, results: list[dict], kind: str) -> str:
         md = ''
         language_map = _get_language_map()
+        git_repo = _get_git_repo()
+        prefix = f'{git_repo}/blob/main/' if git_repo else ''
         for i, result in enumerate(results):
             ext = Path(result['file_path']).suffix.lower()
             lang = language_map.get(ext, 'text')
@@ -302,7 +331,10 @@ class SembleCommand(sublime_plugin.WindowCommand):
                 md += f'🎯 {i + 1}\n'  # rank based (RRF)
             elif kind == 'find-related':
                 md += f'🎯 {result.get("score", 0):.2%}\n'  # cosine similarity
-            md += f'📌 [source]({result["file_path"]}#L{result["start_line"]}-L{result["end_line"]})\n'
+            file_path = result['file_path']
+            if git_repo:
+                file_path = prefix + result['file_path'].replace(sep, '/')
+            md += f'📌 [source]({file_path}#L{result["start_line"]}-L{result["end_line"]})\n'
             if result.get('content'):
                 md += f'\n```{lang}\n{result["content"]}\n```\n'
 

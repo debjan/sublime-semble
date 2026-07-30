@@ -13,7 +13,7 @@ A [Sublime Text](https://www.sublimetext.com/) plugin that integrates the [`semb
 
 - Sublime Text 4
 - [`semble`](https://github.com/MinishLab/semble) CLI installed and on your `PATH` (`uv tool install semble`)
-- An open Sublime Text **project** (`.sublime-project`)
+- An open Sublime Text **project** (`.sublime-project`) or set `git_repo`
 
 ## Installation
 
@@ -49,8 +49,3 @@ Results appear in a **Semble results** tab showing:
 - 📌 Source file and line range
 - 🔗 Find-related link
 - Syntax-highlighted code block
-
-## Notes
-
-- The plugin is only active when a project is open and `semble` is on your `PATH`. The command is hidden otherwise.
-- **source** links can be opened in various ways in Sublime, while I'd suggest using `rumdl` LSP plugin
