@@ -162,14 +162,9 @@ class SembleCommand(sublime_plugin.WindowCommand):
 
         settings = sublime.load_settings('Semble.sublime-settings')
         top_k = settings.get('top_k', 5)
-        max_snippet_lines = settings.get('max_snippet_lines', 10)
+        show_code = [] if settings.get('show_code', True) else ['--max-snippet-lines', '0']
         content = settings.get('content', ['code'])
-        cmd = [
-            'semble', command,
-            '-k', str(top_k),
-            '--max-snippet-lines', str(max_snippet_lines),
-            '--content', *content, '--'
-        ]
+        cmd = ['semble', command, '-k', str(top_k), *show_code, '--content', *content, '--']
         if command == 'find-related':
             cmd += [file_path, line_number]
         elif command == 'search':

@@ -1,9 +1,9 @@
 {
     "top_k": 5,                 // Number of results
-    "max_snippet_lines": 10,    // Lines of source per result (10 = signature + body, 0 = no code)
+    "show_code": true,          // Whether to show code chunks or not
     "content": ["code"],        // List of content types to index. Choices: code, docs, config, all
     "reuse_tab": false,         // Reuse single scratch tab instead opening new on each command
-    "timeout": 120,             // First run on a large project can take a bit on slow machines
+    "timeout": 60,              // First run on a large project can take a bit on slow machines
     "show_gutter": false,       // Whether to show gutter (giving more space on the left)
     "wrap": false,              // Word wrap results
     "git_repo": null            // Use git repo url instead project
