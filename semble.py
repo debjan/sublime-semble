@@ -63,6 +63,20 @@ def _get_git_repo() -> str | None:
             return
 
 
+def _clean_error(stderr: str) -> str:
+    """Return a concise error message from semble stderr output.
+
+    Strips Python tracebacks and returns only the final exception line.
+    If no traceback is detected, the raw text is returned as-is.
+    """
+    lines = stderr.strip().splitlines()
+    for line in reversed(lines):
+        line = line.strip()
+        if line and not line.startswith('File "') and not line.startswith('Traceback'):
+            return line
+    return stderr.strip()
+
+
 class SembleEventListener(sublime_plugin.EventListener):
     """Clean up phantom sets and cancel threads when views are closed."""
 
@@ -223,7 +237,7 @@ class SembleCommand(sublime_plugin.WindowCommand):
                 timeout = settings.get('timeout', 120)
                 stdout, stderr = proc.communicate(timeout=timeout)
                 if proc.returncode != 0:
-                    md = error_admon(stderr.strip())
+                    md = error_admon(_clean_error(stderr))
                 else:
                     payload = json.loads(stdout) if stdout else {}
                     results = payload.get('results') or []
