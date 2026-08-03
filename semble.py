@@ -77,6 +77,12 @@ def _clean_error(stderr: str) -> str:
     return stderr.strip()
 
 
+def _get_single_folder_path(window: sublime.Window) -> str | None:
+    """Return the path of the only open folder if there is exactly one, else None."""
+    folders = window.folders()
+    return folders[0] if len(folders) == 1 else None
+
+
 class SembleEventListener(sublime_plugin.EventListener):
     """Clean up phantom sets and cancel threads when views are closed."""
 
@@ -98,7 +104,12 @@ class SembleCommand(sublime_plugin.WindowCommand):
         if not _semble_is_available():
             return False
         project_path = self.window.extract_variables().get('project_path')
-        return bool(project_path or _get_git_repo())
+        if project_path or _get_git_repo():
+            return True
+        settings = sublime.load_settings('Semble.sublime-settings')
+        if settings.get('allow_single_folder', False):
+            return bool(_get_single_folder_path(self.window))
+        return False
 
     def run(
         self,
@@ -109,6 +120,10 @@ class SembleCommand(sublime_plugin.WindowCommand):
     ) -> None:
         git_repo = _get_git_repo() or ''
         project_path = self.window.extract_variables().get('project_path') or ''
+        if not project_path:
+            settings = sublime.load_settings('Semble.sublime-settings')
+            if settings.get('allow_single_folder', False):
+                project_path = _get_single_folder_path(self.window) or ''
         if command == 'find-related':
             if not file_path:
                 view = self.window.active_view()

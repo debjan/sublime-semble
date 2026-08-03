@@ -6,5 +6,6 @@
     "timeout": 60,              // First run on a large project can take a bit on slow machines
     "show_gutter": false,       // Whether to show gutter (giving more space on the left)
     "wrap": false,              // Word wrap results
-    "git_repo": null            // Use git repo url instead project
+    "git_repo": null,           // Use git repo url instead project
+    "allow_single_folder": true // Enable plugin for windows with a single open folder (no .sublime-project)
 }
