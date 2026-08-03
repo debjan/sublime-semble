@@ -104,12 +104,7 @@ class SembleCommand(sublime_plugin.WindowCommand):
         if not _semble_is_available():
             return False
         project_path = self.window.extract_variables().get('project_path')
-        if project_path or _get_git_repo():
-            return True
-        settings = sublime.load_settings('Semble.sublime-settings')
-        if settings.get('allow_single_folder', False):
-            return bool(_get_single_folder_path(self.window))
-        return False
+        return bool(project_path or _get_git_repo() or _get_single_folder_path(self.window))
 
     def run(
         self,
@@ -121,9 +116,7 @@ class SembleCommand(sublime_plugin.WindowCommand):
         git_repo = _get_git_repo() or ''
         project_path = self.window.extract_variables().get('project_path') or ''
         if not project_path:
-            settings = sublime.load_settings('Semble.sublime-settings')
-            if settings.get('allow_single_folder', False):
-                project_path = _get_single_folder_path(self.window) or ''
+            project_path = _get_single_folder_path(self.window) or ''
         if command == 'find-related':
             if not file_path:
                 view = self.window.active_view()
