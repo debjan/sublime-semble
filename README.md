@@ -13,7 +13,7 @@ A [Sublime Text](https://www.sublimetext.com/) plugin that integrates the [`semb
 
 - Sublime Text 4
 - [`semble`](https://github.com/MinishLab/semble) CLI installed and on your `PATH` (`uv tool install semble`)
-- An open Sublime Text **project** (`.sublime-project`) or set `git_repo`
+- An open Sublime Text **project** (or single folder window) or set `git_repo`
 
 ## Installation
 
