@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import bisect
 import json
 import re
 import shutil
@@ -98,6 +99,74 @@ class SembleEventListener(sublime_plugin.EventListener):
             proc.kill()
 
 
+class SembleFindResultsListener(sublime_plugin.ViewEventListener):
+    """Handle double-click navigation in the Semble Find Results tab.
+
+    Sublime's native Find Results navigation is unreliable on hand-built
+    tabs, so this listener handles double-clicks directly: both matched
+    lines (line number followed by ':') and file header lines open the
+    corresponding file.
+    """
+
+    @classmethod
+    def is_applicable(cls, settings: sublime.Settings) -> bool:
+        return bool(settings.get('is_semble_results'))
+
+    def on_text_command(
+        self,
+        command: str,
+        args: dict | None,
+    ) -> tuple[str, None] | None:
+        if command != 'drag_select':
+            return None
+        if not args or args.get('by') != 'words':
+            return None
+        event = args.get('event')
+        if not event:
+            return None
+        point = self.view.window_to_text((event['x'], event['y']))
+        line_region = self.view.line(point)
+        line_text = self.view.substr(line_region)
+        if re.match(r'^ +\d+:', line_text):
+            self._open_line(line_region, line_text)
+            return ('noop', None)
+        if re.match(r'^[^ ].*:$', line_text):
+            self._open_header(line_region)
+            return ('noop', None)
+        return None
+
+    def _header_before(self, point: int) -> sublime.Region | None:
+        headers = self.view.find_by_selector('entity.name.filename.find-in-files')
+        idx = bisect.bisect(headers, sublime.Region(point)) - 1
+        return headers[idx] if idx >= 0 else None
+
+    def _open_line(self, line_region: sublime.Region, line_text: str) -> None:
+        window = self.view.window()
+        if not window:
+            return
+        m = re.match(r'^ +(\d+):', line_text)
+        if not m:
+            return
+        header = self._header_before(line_region.begin())
+        if not header:
+            return
+        path = self.view.substr(header).rstrip(':').strip()
+        window.open_file(f'{path}:{int(m.group(1))}', sublime.ENCODED_POSITION)
+
+    def _open_header(self, header_region: sublime.Region) -> None:
+        window = self.view.window()
+        if not window:
+            return
+        path = self.view.substr(header_region).rstrip(':').strip()
+        line = 1
+        m = self.view.find(r'^ +\d+:', header_region.end())
+        if m:
+            lm = re.match(r'^ +(\d+):', self.view.substr(m))
+            if lm:
+                line = int(lm.group(1))
+        window.open_file(f'{path}:{line}', sublime.ENCODED_POSITION)
+
+
 class SembleCommand(sublime_plugin.WindowCommand):
 
     def is_visible(self) -> bool:
@@ -145,6 +214,11 @@ class SembleCommand(sublime_plugin.WindowCommand):
 
     def _get_output_view(self) -> sublime.View:
         settings = sublime.load_settings('Semble.sublime-settings')
+        syntax = (
+            'Packages/Default/Find Results.hidden-tmLanguage'
+            if settings.get('find_results')
+            else 'Packages/Markdown/Markdown.sublime-syntax'
+        )
         if settings.get('reuse_tab', False):
             for v in self.window.views():
                 if v.name() == 'Semble results' and v.is_scratch():
@@ -158,17 +232,25 @@ class SembleCommand(sublime_plugin.WindowCommand):
                     _active_threads.pop(vid, None)
                     _phantom_sets.pop(vid, None)
                     v.set_read_only(False)
+                    v.assign_syntax(syntax)
+                    s = v.settings()
+                    s.set('is_semble_results', settings.get('find_results'))
+                    if settings.get('find_results'):
+                        s.set('result_line_regex', r'^ +([0-9]+):')
                     v.run_command('select_all')
                     v.run_command('left_delete')
                     return v
         v = self.window.new_file()
         v.set_scratch(True)
         v.set_name('Semble results')
-        v.assign_syntax('Packages/Markdown/Markdown.sublime-syntax')
+        v.assign_syntax(syntax)
         s = v.settings()
         s.set('line_numbers', False)
         s.set('word_wrap', settings.get('wrap'))
         s.set('gutter', settings.get('show_gutter'))
+        s.set('is_semble_results', settings.get('find_results'))
+        if settings.get('find_results'):
+            s.set('result_line_regex', r'^ +([0-9]+):')
         return v
 
     def _start(
@@ -226,6 +308,8 @@ class SembleCommand(sublime_plugin.WindowCommand):
         if cancel_event.is_set():
             return
 
+        find_results = False
+
         creation_flags = (
             getattr(subprocess, 'CREATE_NO_WINDOW', 0)
             if sys.platform == 'win32' else 0
@@ -251,8 +335,17 @@ class SembleCommand(sublime_plugin.WindowCommand):
                     results = payload.get('results') or []
                     if _get_git_repo():
                         cmd.pop()
-                    md = f'# Semble {cmd[1]} ({":".join(cmd[cmd.index("--") + 1:])})\n'
-                    md += self._json_to_md(results, kind=cmd[1])
+                    find_results = settings.get('find_results') and not _get_git_repo()
+                    if find_results:
+                        query = ":".join(cmd[cmd.index("--") + 1:])
+                        if cmd[1] == 'search':
+                            header = f'Searching for "{query}"'
+                        else:
+                            header = f'Finding related to "{query}"'
+                        md = header + '\n\n' + self._json_to_find_results(results, project_path)
+                    else:
+                        md = f'# Semble {cmd[1]} ({":".join(cmd[cmd.index("--") + 1:])})\n'
+                        md += self._json_to_md(results, kind=cmd[1])
             finally:
                 _processes.pop(view_id, None)
         except subprocess.TimeoutExpired:
@@ -266,17 +359,18 @@ class SembleCommand(sublime_plugin.WindowCommand):
         # Check if view is still valid before updating
         def safe_update():
             if output_view.is_valid():
-                self._update_output(md, output_view)
+                self._update_output(md, output_view, find_results)
             _active_threads.pop(view_id, None)
             _cancel_events.pop(view_id, None)
 
         sublime.set_timeout(safe_update, 0)
 
-    def _update_output(self, md: str, view: sublime.View) -> None:
+    def _update_output(self, md: str, view: sublime.View, find_results: bool) -> None:
         if not view.is_valid():
             return
         view.run_command('append', {'characters': md})
-        self._add_location_phantoms(view)
+        if not find_results:
+            self._add_location_phantoms(view)
 
     def _add_location_phantoms(self, view: sublime.View) -> None:
         view_id = view.id()
@@ -356,6 +450,40 @@ class SembleCommand(sublime_plugin.WindowCommand):
                 md += f'\n```{lang}\n{result["content"]}\n```\n'
 
         return md
+
+    def _json_to_find_results(
+        self,
+        results: list[dict],
+        project_path: str,
+    ) -> str:
+        """Format results as a native, clickable Sublime Find Results tab."""
+        root = Path(project_path) if project_path else None
+        groups: dict[str, list[dict]] = {}
+        order: list[str] = []
+        for result in results:
+            file_path = result['file_path']
+            if root:
+                file_path = str(root / file_path)
+            if file_path not in groups:
+                groups[file_path] = []
+                order.append(file_path)
+            groups[file_path].append(result)
+
+        out: list[str] = []
+        for file_path in order:
+            out.append(f'{file_path}:')
+            for r in groups[file_path]:
+                start = r['start_line']
+                end = r['end_line']
+                lines = (r.get('content') or '').splitlines()
+                if lines:
+                    for i, line in enumerate(lines):
+                        out.append(f'   {start + i}:   {line}')
+                else:
+                    midline = start + (end - start) // 2
+                    out.append(f'   {midline}:')
+            out.append('')
+        return '\n'.join(out)
 
     def _show_spinner(
         self,

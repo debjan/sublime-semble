@@ -8,6 +8,7 @@ A [Sublime Text](https://www.sublimetext.com/) plugin that integrates the [`semb
 - **Find related** — discover semantically related code snippets
 - Results open in a dedicated scratch view rendered as Markdown with syntax-highlighted code blocks
 - Inline **"find related"** phantom links on each result for one-click chaining
+- Optional **Find Results** tab output - native, clickable file/line navigation
 
 ## Requirements
 
