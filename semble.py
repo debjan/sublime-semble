@@ -56,12 +56,18 @@ def _get_language_map() -> dict[str, str]:
 
 def _get_git_repo() -> str | None:
     git_repo = sublime.load_settings('Semble.sublime-settings').get('git_repo')
-    if git_repo and git_repo.startswith('http'):
-        try:
-            r = urlparse(git_repo)
-            return git_repo if all([r.scheme in ['http', 'https'], r.netloc]) else None
-        except ValueError:
-            return
+    if not git_repo or not git_repo.startswith('http'):
+        return None
+    try:
+        r = urlparse(git_repo)
+        return git_repo if r.scheme in ('http', 'https') and r.netloc else None
+    except ValueError:
+        return None
+
+
+def _error_admon(msg: str) -> str:
+    """Return a markdown admonition for an error message."""
+    return f'# Exception\n\n> [!ERROR]\n> {msg}\n'
 
 
 def _clean_error(stderr: str) -> str:
@@ -91,11 +97,9 @@ class SembleEventListener(sublime_plugin.EventListener):
         view_id = view.id()
         _phantom_sets.pop(view_id, None)
         _active_threads.pop(view_id, None)
-        cancel_event = _cancel_events.pop(view_id, None)
-        if cancel_event:
+        if cancel_event := _cancel_events.pop(view_id, None):
             cancel_event.set()
-        proc = _processes.pop(view_id, None)
-        if proc:
+        if proc := _processes.pop(view_id, None):
             proc.kill()
 
 
@@ -117,9 +121,7 @@ class SembleFindResultsListener(sublime_plugin.ViewEventListener):
         command: str,
         args: dict | None,
     ) -> tuple[str, None] | None:
-        if command != 'drag_select':
-            return None
-        if not args or args.get('by') != 'words':
+        if command != 'drag_select' or not args or args.get('by') != 'words':
             return None
         event = args.get('event')
         if not event:
@@ -159,10 +161,8 @@ class SembleFindResultsListener(sublime_plugin.ViewEventListener):
             return
         path = self.view.substr(header_region).rstrip(':').strip()
         line = 1
-        m = self.view.find(r'^ +\d+:', header_region.end())
-        if m:
-            lm = re.match(r'^ +(\d+):', self.view.substr(m))
-            if lm:
+        if m := self.view.find(r'^ +\d+:', header_region.end()):
+            if lm := re.match(r'^ +(\d+):', self.view.substr(m)):
                 line = int(lm.group(1))
         window.open_file(f'{path}:{line}', sublime.ENCODED_POSITION)
 
@@ -214,32 +214,24 @@ class SembleCommand(sublime_plugin.WindowCommand):
 
     def _get_output_view(self) -> sublime.View:
         settings = sublime.load_settings('Semble.sublime-settings')
+        find_results = settings.get('find_results')
         syntax = (
             'Packages/Default/Find Results.hidden-tmLanguage'
-            if settings.get('find_results')
+            if find_results
             else 'Packages/Markdown/Markdown.sublime-syntax'
         )
+
         if settings.get('reuse_tab', False):
             for v in self.window.views():
                 if v.name() == 'Semble results' and v.is_scratch():
-                    vid = v.id()
-                    cancel_event = _cancel_events.pop(vid, None)
-                    if cancel_event:
-                        cancel_event.set()
-                    proc = _processes.pop(vid, None)
-                    if proc:
-                        proc.kill()
-                    _active_threads.pop(vid, None)
-                    _phantom_sets.pop(vid, None)
+                    self._cleanup_view(v)
                     v.set_read_only(False)
                     v.assign_syntax(syntax)
-                    s = v.settings()
-                    s.set('is_semble_results', settings.get('find_results'))
-                    if settings.get('find_results'):
-                        s.set('result_line_regex', r'^ +([0-9]+):')
+                    self._apply_view_settings(v, settings, find_results)
                     v.run_command('select_all')
                     v.run_command('left_delete')
                     return v
+
         v = self.window.new_file()
         v.set_scratch(True)
         v.set_name('Semble results')
@@ -248,10 +240,25 @@ class SembleCommand(sublime_plugin.WindowCommand):
         s.set('line_numbers', False)
         s.set('word_wrap', settings.get('wrap'))
         s.set('gutter', settings.get('show_gutter'))
-        s.set('is_semble_results', settings.get('find_results'))
-        if settings.get('find_results'):
-            s.set('result_line_regex', r'^ +([0-9]+):')
+        self._apply_view_settings(v, settings, find_results)
         return v
+
+    def _cleanup_view(self, view: sublime.View) -> None:
+        vid = view.id()
+        if cancel_event := _cancel_events.pop(vid, None):
+            cancel_event.set()
+        if proc := _processes.pop(vid, None):
+            proc.kill()
+        _active_threads.pop(vid, None)
+        _phantom_sets.pop(vid, None)
+
+    def _apply_view_settings(
+        self, view: sublime.View, settings: sublime.Settings, find_results: bool
+    ) -> None:
+        s = view.settings()
+        s.set('is_semble_results', find_results)
+        if find_results:
+            s.set('result_line_regex', r'^ +([0-9]+):')
 
     def _start(
         self,
@@ -301,14 +308,11 @@ class SembleCommand(sublime_plugin.WindowCommand):
         view_id: int,
         cancel_event: threading.Event,
     ) -> None:
-
-        def error_admon(msg: str) -> str:
-            return f'# Exception\n\n> [!ERROR]\n> {msg}\n'
-
         if cancel_event.is_set():
             return
 
         find_results = False
+        md = ''
 
         creation_flags = (
             getattr(subprocess, 'CREATE_NO_WINDOW', 0)
@@ -329,19 +333,19 @@ class SembleCommand(sublime_plugin.WindowCommand):
                 timeout = settings.get('timeout', 120)
                 stdout, stderr = proc.communicate(timeout=timeout)
                 if proc.returncode != 0:
-                    md = error_admon(_clean_error(stderr))
+                    md = _error_admon(_clean_error(stderr))
                 else:
                     payload = json.loads(stdout) if stdout else {}
                     results = payload.get('results') or []
                     if _get_git_repo():
                         cmd.pop()
-                    find_results = settings.get('find_results') and not _get_git_repo()
-                    if find_results:
+                    if find_results := settings.get('find_results') and not _get_git_repo():
                         query = ":".join(cmd[cmd.index("--") + 1:])
-                        if cmd[1] == 'search':
-                            header = f'Searching for "{query}"'
-                        else:
-                            header = f'Finding related to "{query}"'
+                        header = (
+                            f'Searching for "{query}"'
+                            if cmd[1] == 'search'
+                            else f'Finding related to "{query}"'
+                        )
                         md = header + '\n\n' + self._json_to_find_results(results, project_path)
                     else:
                         md = f'# Semble {cmd[1]} ({":".join(cmd[cmd.index("--") + 1:])})\n'
@@ -351,13 +355,12 @@ class SembleCommand(sublime_plugin.WindowCommand):
         except subprocess.TimeoutExpired:
             _processes.pop(view_id, None)
             proc.kill()
-            md = error_admon('Search timed out')
+            md = _error_admon('Search timed out')
         except Exception as e:
             _processes.pop(view_id, None)
-            md = error_admon(f'{type(e).__name__}: {e}')
+            md = _error_admon(f'{type(e).__name__}: {e}')
 
-        # Check if view is still valid before updating
-        def safe_update():
+        def safe_update() -> None:
             if output_view.is_valid():
                 self._update_output(md, output_view, find_results)
             _active_threads.pop(view_id, None)
@@ -475,8 +478,7 @@ class SembleCommand(sublime_plugin.WindowCommand):
             for r in groups[file_path]:
                 start = r['start_line']
                 end = r['end_line']
-                lines = (r.get('content') or '').splitlines()
-                if lines:
+                if lines := (r.get('content') or '').splitlines():
                     for i, line in enumerate(lines):
                         out.append(f'   {start + i}:   {line}')
                 else:
