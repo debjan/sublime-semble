@@ -47,11 +47,11 @@ def _semble_is_available() -> bool:
 
 @lru_cache(maxsize=1)
 def _get_language_map() -> dict[str, str]:
-    extensions = Path(__file__).resolve().parent / 'extensions.json'
-    return (
-        json.loads(extensions.read_text(encoding='utf-8'))
-        if extensions.is_file() else {}
-    )
+    try:
+        raw = sublime.load_resource('Packages/Semble/extensions.json')
+    except OSError:
+        return {}
+    return json.loads(raw)
 
 
 def _get_git_repo() -> str | None:
