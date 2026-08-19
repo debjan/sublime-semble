@@ -49,7 +49,7 @@ def _semble_is_available() -> bool:
 def _get_language_map() -> dict[str, str]:
     try:
         raw = sublime.load_resource('Packages/Semble/extensions.json')
-    except OSError:
+    except Exception:
         return {}
     return json.loads(raw)
 
