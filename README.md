@@ -18,6 +18,10 @@ A [Sublime Text](https://www.sublimetext.com/) plugin that integrates the [`semb
 
 ## Installation
 
+Easiest way is to install via Package Control.
+
+For manual installation:
+
 1. Clone or copy this package into your Sublime Text `Packages/` directory:
 
 ```shell
